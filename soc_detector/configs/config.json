@@ -1,0 +1,5 @@
+{
+  "db_path": "data/soc_events.db",
+  "bruteforce_window_minutes": 5,
+  "bruteforce_threshold": 5
+}
