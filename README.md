@@ -1,4 +1,4 @@
-# AI-Powered SOC Threat Detection Platform
+# Powered SOC Threat Detection Platform
 
 A real-time Security Operations Center (SOC) monitoring and threat detection platform designed for Linux environments.
 
