@@ -2,18 +2,15 @@
 AI-Powered SOC Threat Detection System
 -------------------------------------
 
-Real-time Linux SSH authentication monitoring system.
-
-Features:
-- Real-time SSH log monitoring
+Real-time SOC monitoring engine for:
+- SSH authentication logs
 - Failed login detection
-- Brute-force attack detection
-- IPv4 + IPv6 support
-- GeoIP enrichment
-- SQLite event storage
-- Alert logging
-- Colorized SOC alerts
-- Kali Linux journalctl support
+- Successful login detection
+- Timeout detection
+- Invalid user detection
+- Brute-force detection
+- SQLite storage
+- Dashboard integration
 
 Author: Crossi
 """
@@ -23,13 +20,12 @@ import re
 import argparse
 import os
 import sqlite3
-import requests
 
 from datetime import datetime
 
 
 # ============================================================
-# TERMINAL COLORS
+# COLORS
 # ============================================================
 
 RED = "\033[91m"
@@ -41,25 +37,7 @@ RESET = "\033[0m"
 
 
 # ============================================================
-# REGEX PATTERNS
-# ============================================================
-
-# Failed SSH authentication attempts
-RE_FAILED = re.compile(
-    r"(Failed password|authentication failure).*?"
-    r"(?:for (?:invalid user )?(?P<user>\S+))?.*?"
-    r"(?:from |rhost=)(?P<ip>[0-9a-fA-F:\.]+)"
-)
-
-# Successful SSH login
-RE_ACCEPTED = re.compile(
-    r"Accepted password for (?P<user>\S+) from "
-    r"(?P<ip>[0-9a-fA-F:\.]+)"
-)
-
-
-# ============================================================
-# DATABASE CONFIG
+# PATHS
 # ============================================================
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -68,22 +46,50 @@ DB_DIR = os.path.join(BASE_DIR, "data")
 
 DB_PATH = os.path.join(DB_DIR, "soc_events.db")
 
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-
-ALERT_LOG = os.path.join(LOG_DIR, "alerts.log")
-
-
-# ============================================================
-# CREATE REQUIRED DIRECTORIES
-# ============================================================
-
 os.makedirs(DB_DIR, exist_ok=True)
 
-os.makedirs(LOG_DIR, exist_ok=True)
+
+# ============================================================
+# REGEX PATTERNS
+# ============================================================
+
+# Failed login
+RE_FAILED = re.compile(
+    r"Failed password for (?:invalid user )?"
+    r"(?P<user>\S+) from "
+    r"(?P<ip>[0-9a-fA-F:\.]+)"
+)
+
+# Successful login
+RE_ACCEPTED = re.compile(
+    r"Accepted password for "
+    r"(?P<user>\S+) from "
+    r"(?P<ip>[0-9a-fA-F:\.]+)"
+)
+
+# Invalid user
+RE_INVALID = re.compile(
+    r"Invalid user "
+    r"(?P<user>\S+) from "
+    r"(?P<ip>[0-9a-fA-F:\.]+)"
+)
+
+# Timeout before authentication
+RE_TIMEOUT = re.compile(
+    r"Timeout before authentication.*?from "
+    r"(?P<ip>[0-9a-fA-F:\.]+)"
+)
+
+# Connection closed
+RE_CONNECTION_CLOSED = re.compile(
+    r"Connection closed by invalid user "
+    r"(?P<user>\S+) "
+    r"(?P<ip>[0-9a-fA-F:\.]+)"
+)
 
 
 # ============================================================
-# DATABASE INITIALIZATION
+# DATABASE
 # ============================================================
 
 def init_db():
@@ -93,22 +99,28 @@ def init_db():
     cursor = conn.cursor()
 
     cursor.execute("""
+
         CREATE TABLE IF NOT EXISTS events (
+
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
             timestamp TEXT,
+
             ip TEXT,
+
             username TEXT,
+
             event_type TEXT
+
         )
+
     """)
 
     conn.commit()
 
     conn.close()
 
-    print(f"{GREEN}[+] Database initialized{RESET}")
-
-    print(f"{CYAN}[DB] {DB_PATH}{RESET}")
+    print(f"{GREEN}[+] Database Initialized{RESET}")
 
 
 # ============================================================
@@ -122,71 +134,30 @@ def save_event(ip, username, event_type):
     cursor = conn.cursor()
 
     cursor.execute("""
+
         INSERT INTO events (
+
             timestamp,
             ip,
             username,
             event_type
+
         )
+
         VALUES (?, ?, ?, ?)
+
     """, (
+
         str(datetime.now()),
         ip,
         username,
         event_type
+
     ))
 
     conn.commit()
 
     conn.close()
-
-
-# ============================================================
-# SAVE ALERTS
-# ============================================================
-
-def save_alert(message):
-
-    with open(ALERT_LOG, "a") as file:
-
-        file.write(
-            f"{datetime.now()} - {message}\n"
-        )
-
-
-# ============================================================
-# GEOIP LOOKUP
-# ============================================================
-
-def get_ip_info(ip):
-
-    # Ignore localhost/private testing
-    if ip in ["127.0.0.1", "::1"]:
-
-        return {
-            "country": "Localhost",
-            "city": "Local Machine",
-            "isp": "Loopback"
-        }
-
-    try:
-
-        response = requests.get(
-            f"http://ip-api.com/json/{ip}",
-            timeout=5
-        )
-
-        data = response.json()
-
-        return {
-            "country": data.get("country"),
-            "city": data.get("city"),
-            "isp": data.get("isp")
-        }
-
-    except:
-
-        return None
 
 
 # ============================================================
@@ -204,12 +175,12 @@ def detect_bruteforce(ip):
 
 
 # ============================================================
-# PARSE SSH LOGS
+# PARSE LOGS
 # ============================================================
 
 def parse_line(line):
 
-    # Failed logins
+    # Failed password
     failed_match = RE_FAILED.search(line)
 
     if failed_match:
@@ -220,7 +191,7 @@ def parse_line(line):
             failed_match.group("ip")
         )
 
-    # Successful logins
+    # Accepted password
     accepted_match = RE_ACCEPTED.search(line)
 
     if accepted_match:
@@ -231,18 +202,51 @@ def parse_line(line):
             accepted_match.group("ip")
         )
 
+    # Invalid user
+    invalid_match = RE_INVALID.search(line)
+
+    if invalid_match:
+
+        return (
+            "invalid_user",
+            invalid_match.group("user"),
+            invalid_match.group("ip")
+        )
+
+    # Timeout
+    timeout_match = RE_TIMEOUT.search(line)
+
+    if timeout_match:
+
+        return (
+            "timeout",
+            "unknown",
+            timeout_match.group("ip")
+        )
+
+    # Connection closed
+    closed_match = RE_CONNECTION_CLOSED.search(line)
+
+    if closed_match:
+
+        return (
+            "connection_closed",
+            closed_match.group("user"),
+            closed_match.group("ip")
+        )
+
     return (None, None, None)
 
 
 # ============================================================
-# PROCESS LOG EVENTS
+# PROCESS EVENT
 # ============================================================
 
 def process_line(line):
 
     event, user, ip = parse_line(line)
 
-    # Ignore unrelated logs
+    # Ignore unmatched logs
     if event is None:
         return
 
@@ -262,49 +266,31 @@ def process_line(line):
     save_event(ip, user, event)
 
     # --------------------------------------------------------
-    # FAILED LOGIN HANDLING
+    # FAILED LOGIN
     # --------------------------------------------------------
 
     if event == "failed":
 
         print(
             f"{RED}[ALERT]{RESET} "
-            f"Failed SSH login detected"
+            f"Failed SSH Login"
         )
 
         attempts = detect_bruteforce(ip)
 
         print(
             f"{YELLOW}[INFO]{RESET} "
-            f"Failed Attempts: {attempts}"
+            f"Attempts: {attempts}"
         )
 
-        # GeoIP Enrichment
-        info = get_ip_info(ip)
-
-        if info:
-
-            print(
-                f"{CYAN}[GEO]{RESET} "
-                f"{info['country']} | "
-                f"{info['city']} | "
-                f"{info['isp']}"
-            )
-
-        # Brute Force Threshold
+        # Brute-force detection
         if attempts >= 5:
-
-            critical_message = (
-                f"Brute Force Attack Detected "
-                f"from {ip}"
-            )
 
             print(
                 f"{RED}[CRITICAL]{RESET} "
-                f"{critical_message}"
+                f"Brute Force Attack Detected "
+                f"from {ip}"
             )
-
-            save_alert(critical_message)
 
     # --------------------------------------------------------
     # SUCCESSFUL LOGIN
@@ -314,12 +300,46 @@ def process_line(line):
 
         print(
             f"{GREEN}[SUCCESS]{RESET} "
-            f"Successful SSH login from {ip}"
+            f"Successful Login "
+            f"from {ip}"
+        )
+
+    # --------------------------------------------------------
+    # INVALID USER
+    # --------------------------------------------------------
+
+    elif event == "invalid_user":
+
+        print(
+            f"{YELLOW}[WARNING]{RESET} "
+            f"Invalid User Attempt"
+        )
+
+    # --------------------------------------------------------
+    # TIMEOUT
+    # --------------------------------------------------------
+
+    elif event == "timeout":
+
+        print(
+            f"{CYAN}[INFO]{RESET} "
+            f"SSH Timeout Detected"
+        )
+
+    # --------------------------------------------------------
+    # CONNECTION CLOSED
+    # --------------------------------------------------------
+
+    elif event == "connection_closed":
+
+        print(
+            f"{YELLOW}[INFO]{RESET} "
+            f"Connection Closed"
         )
 
 
 # ============================================================
-# MAIN APPLICATION
+# MAIN
 # ============================================================
 
 def main():
@@ -328,25 +348,17 @@ def main():
 
     parser.add_argument(
         "--init-db",
-        action="store_true",
-        help="Initialize database"
+        action="store_true"
     )
 
     args = parser.parse_args()
 
-    # --------------------------------------------------------
-    # DATABASE INIT
-    # --------------------------------------------------------
-
+    # Database setup
     if args.init_db:
 
         init_db()
 
         return
-
-    # --------------------------------------------------------
-    # START ENGINE
-    # --------------------------------------------------------
 
     print(
         f"{GREEN}[+] SOC Threat Detection Started{RESET}"
@@ -356,10 +368,7 @@ def main():
         f"{GREEN}[+] Waiting for SSH logs...{RESET}\n"
     )
 
-    # --------------------------------------------------------
-    # LIVE LOG STREAM
-    # --------------------------------------------------------
-
+    # Read logs from stdin
     for raw in sys.stdin:
 
         line = raw.strip()
@@ -383,8 +392,9 @@ def main():
 
 
 # ============================================================
-# ENTRY POINT
+# ENTRY
 # ============================================================
 
 if __name__ == "__main__":
+
     main()
