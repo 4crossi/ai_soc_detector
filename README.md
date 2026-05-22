@@ -56,6 +56,7 @@ Terminal Detection Engine
 <img width="1600" height="769" alt="dashboard" src="https://github.com/user-attachments/assets/8d5395b1-d714-4f50-b46b-64bf81cfb87f" />
 
 # Project Structure
+```bash
 soc_detector/
 │
 ├── soc_detector/
@@ -82,6 +83,7 @@ soc_detector/
 ├── screenshots/
 ├── README.md
 └── requirements.txt
+```
 Detection Capabilities
 
 The platform currently supports detection and monitoring of:
@@ -94,8 +96,8 @@ Authentication timeout events
 Repeated attacker IP correlation
 GeoIP-based attacker origin tracking
 Live suspicious activity monitoring
-Quick Start
-Quick start (Linux)
+
+# Quick start (Linux)
 
 1. Create virtualenv and install deps
 
