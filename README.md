@@ -1,4 +1,4 @@
-AI-Powered SOC Threat Detection (Linux-ready)
+SOC Threat Detection (Linux-ready)
 
 This project simulates a small SOC pipeline for Linux: real-time auth log monitoring, brute-force detection, alerting, a lightweight dashboard, and ML-based anomaly detection.
 
